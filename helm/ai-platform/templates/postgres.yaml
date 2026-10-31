@@ -72,9 +72,22 @@ spec:
       labels:
         app: analytics-postgres
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70 # Standard postgres user in alpine
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: postgres
         image: {{ .Values.postgres.image }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
         ports:
         - containerPort: {{ .Values.postgres.port }}
         env:
@@ -90,6 +103,7 @@ spec:
         volumeMounts:
         - name: init-sql-volume
           mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
         resources:
           {{- toYaml .Values.postgres.resources | nindent 10 }}
       volumes:

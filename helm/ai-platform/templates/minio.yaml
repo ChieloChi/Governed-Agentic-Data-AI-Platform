@@ -61,3 +61,4 @@ spec:
     targetPort: {{ .Values.objectStorage.minio.consolePort }}
     name: console
 {{- end }}
+

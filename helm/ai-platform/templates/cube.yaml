@@ -82,7 +82,7 @@ metadata:
   labels:
     app: cube-semantic-layer
 spec:
-  replicas: 1
+  replicas: {{ .Values.cube.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: cube-semantic-layer
@@ -91,9 +91,22 @@ spec:
       labels:
         app: cube-semantic-layer
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: cube
         image: {{ .Values.cube.image }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
         ports:
         - containerPort: {{ .Values.cube.apiPort }}
           name: api
@@ -141,6 +154,7 @@ spec:
         volumeMounts:
         - name: schema-volume
           mountPath: /cube/conf/schema
+          readOnly: true
         resources:
           {{- toYaml .Values.cube.resources | nindent 10 }}
       volumes:

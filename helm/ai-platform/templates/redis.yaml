@@ -15,9 +15,22 @@ spec:
       labels:
         app: redis-cache
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999 # Standard redis user in alpine
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: redis
         image: {{ .Values.redis.image }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
         ports:
         - containerPort: {{ .Values.redis.port }}
         resources:
@@ -34,4 +47,3 @@ spec:
   - port: {{ .Values.redis.port }}
     targetPort: {{ .Values.redis.port }}
 {{- end }}
-

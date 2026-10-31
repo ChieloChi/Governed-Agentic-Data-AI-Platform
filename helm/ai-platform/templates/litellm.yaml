@@ -34,10 +34,23 @@ spec:
       labels:
         app: litellm-gateway
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: litellm
         image: {{ .Values.litellm.image }}
         args: ["--config", "/etc/litellm/config.yaml", "--port", "{{ .Values.litellm.port }}"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
         ports:
         - containerPort: {{ .Values.litellm.port }}
         env:
@@ -49,6 +62,7 @@ spec:
         volumeMounts:
         - name: config-volume
           mountPath: /etc/litellm
+          readOnly: true
         resources:
           {{- toYaml .Values.litellm.resources | nindent 10 }}
       volumes:

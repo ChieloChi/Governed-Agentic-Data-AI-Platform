@@ -1,0 +1,63 @@
+{{- if .Values.objectStorage.minio.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-minio
+  labels:
+    app: minio-s3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio-s3
+  template:
+    metadata:
+      labels:
+        app: minio-s3
+    spec:
+      containers:
+      - name: minio
+        image: {{ .Values.objectStorage.minio.image }}
+        args:
+        - server
+        - /data
+        - --console-address
+        - ":{{ .Values.objectStorage.minio.consolePort }}"
+        ports:
+        - containerPort: {{ .Values.objectStorage.minio.apiPort }}
+          name: s3-api
+        - containerPort: {{ .Values.objectStorage.minio.consolePort }}
+          name: console
+        env:
+        - name: MINIO_ROOT_USER
+          value: "minioadmin"
+        - name: MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: minio-root-password
+              optional: true
+        volumeMounts:
+        - name: minio-storage
+          mountPath: /data
+        resources:
+          {{- toYaml .Values.objectStorage.minio.resources | nindent 10 }}
+      volumes:
+      - name: minio-storage
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-service
+spec:
+  selector:
+    app: minio-s3
+  ports:
+  - port: {{ .Values.objectStorage.minio.apiPort }}
+    targetPort: {{ .Values.objectStorage.minio.apiPort }}
+    name: s3-api
+  - port: {{ .Values.objectStorage.minio.consolePort }}
+    targetPort: {{ .Values.objectStorage.minio.consolePort }}
+    name: console
+{{- end }}

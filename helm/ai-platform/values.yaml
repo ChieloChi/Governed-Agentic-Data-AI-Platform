@@ -26,7 +26,30 @@ keycloak:
   port: 8080
   realm: "ai-enterprise"
 
-# 3. Analytics Datastore (Choose: In-Cluster Self-Managed OR External Managed Database)
+# 3. Hybrid Object Storage (S3 API: Amazon S3 vs. MinIO for Bare-Metal)
+objectStorage:
+  # Option A: Amazon S3 (Cloud)
+  s3:
+    enabled: true # Set to true when using AWS S3
+    bucket: "ai-platform-data-bucket"
+    region: "us-east-1"
+
+  # Option B: MinIO (High-Performance Self-Hosted S3 for Bare-Metal / On-Prem)
+  minio:
+    enabled: false # Set to true on bare-metal to deploy in-cluster S3 object store
+    image: "minio/minio:RELEASE.2024-05-10T01-41-38Z"
+    apiPort: 9000
+    consolePort: 9001
+    defaultBucket: "ai-platform-lake"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+# 4. Analytics Datastore (Choose: In-Cluster Self-Managed OR External Managed Database)
 postgres:
   enabled: true # Set to true to deploy PostgreSQL inside the cluster
   image: "postgres:16-alpine"
@@ -48,7 +71,7 @@ externalDatabase:
   dbName: "enterprise_analytics"
   dbUser: "cube_admin"
 
-# 4. Cube.js Semantic Engine
+# 5. Cube.js Semantic Engine
 cube:
   enabled: true
   image: "cubejs/cube:v0.36.0"
@@ -73,7 +96,7 @@ cube:
     enabled: true
     minAvailable: 1
 
-# 5. vLLM GPU Serving Engine
+# 6. vLLM GPU Serving Engine
 vllm:
   enabled: true
   image: "vllm/vllm-openai:v0.6.3"
@@ -96,7 +119,7 @@ vllm:
       cpu: "3000m"
       memory: "10Gi"
   autoscaling:
-    enabled: false # Enabled when Karpenter/cluster-autoscaler provisions multi-GPU nodes
+    enabled: false
     minReplicas: 1
     maxReplicas: 3
     targetCPUUtilizationPercentage: 80
@@ -104,7 +127,7 @@ vllm:
     enabled: true
     minAvailable: 1
 
-# 6. LiteLLM AI Gateway
+# 7. LiteLLM AI Gateway
 litellm:
   enabled: true
   image: "ghcr.io/berriai/litellm:main-v1.44.20"
@@ -127,7 +150,7 @@ litellm:
     enabled: true
     minAvailable: 1
 
-# 7. Redis Semantic Prompt Cache
+# 8. Redis Semantic Prompt Cache
 redis:
   enabled: true
   image: "redis:7-alpine"
@@ -140,7 +163,7 @@ redis:
       cpu: "250m"
       memory: "512Mi"
 
-# 8. Qdrant Vector Database
+# 9. Qdrant Vector Database
 qdrant:
   enabled: true
   image: "qdrant/qdrant:v1.11.0"

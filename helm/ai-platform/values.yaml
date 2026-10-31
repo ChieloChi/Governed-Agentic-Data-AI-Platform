@@ -60,12 +60,12 @@ postgres:
   dbName: "enterprise_analytics"
   dbUser: "cube_admin"
   port: 5432
-  # Official postgres alpine default UID/GID is 70 or 999. Configurable here:
+  # Official postgres default UID/GID is 999 (prevents data directory permission denied)
   podSecurityContext:
     runAsNonRoot: true
-    runAsUser: 65510
-    runAsGroup: 65510
-    fsGroup: 65510
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
     seccompProfile:
       type: RuntimeDefault
   securityContext:
@@ -208,11 +208,12 @@ redis:
   enabled: true
   image: "redis:7-alpine"
   port: 6379
+  # Official redis default UID/GID is 999
   podSecurityContext:
     runAsNonRoot: true
-    runAsUser: 65510
-    runAsGroup: 65510
-    fsGroup: 65510
+    runAsUser: 999
+    runAsGroup: 999
+    fsGroup: 999
     seccompProfile:
       type: RuntimeDefault
   securityContext:

@@ -25,7 +25,7 @@ metadata:
   labels:
     app: litellm-gateway
 spec:
-  replicas: 1
+  replicas: {{ .Values.litellm.replicaCount | default 1 }}
   selector:
     matchLabels:
       app: litellm-gateway
@@ -34,23 +34,18 @@ spec:
       labels:
         app: litellm-gateway
     spec:
+      {{- if .Values.litellm.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        fsGroup: 10001
-        seccompProfile:
-          type: RuntimeDefault
+        {{- toYaml .Values.litellm.podSecurityContext | nindent 8 }}
+      {{- end }}
       containers:
       - name: litellm
         image: {{ .Values.litellm.image }}
         args: ["--config", "/etc/litellm/config.yaml", "--port", "{{ .Values.litellm.port }}"]
+        {{- if .Values.litellm.securityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: false
-          capabilities:
-            drop:
-            - ALL
+          {{- toYaml .Values.litellm.securityContext | nindent 10 }}
+        {{- end }}
         ports:
         - containerPort: {{ .Values.litellm.port }}
         env:

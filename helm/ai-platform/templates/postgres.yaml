@@ -72,22 +72,17 @@ spec:
       labels:
         app: analytics-postgres
     spec:
+      {{- if .Values.postgres.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 70 # Standard postgres user in alpine
-        runAsGroup: 70
-        fsGroup: 70
-        seccompProfile:
-          type: RuntimeDefault
+        {{- toYaml .Values.postgres.podSecurityContext | nindent 8 }}
+      {{- end }}
       containers:
       - name: postgres
         image: {{ .Values.postgres.image }}
+        {{- if .Values.postgres.securityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: false
-          capabilities:
-            drop:
-            - ALL
+          {{- toYaml .Values.postgres.securityContext | nindent 10 }}
+        {{- end }}
         ports:
         - containerPort: {{ .Values.postgres.port }}
         env:

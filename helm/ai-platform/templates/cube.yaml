@@ -91,22 +91,17 @@ spec:
       labels:
         app: cube-semantic-layer
     spec:
+      {{- if .Values.cube.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
+        {{- toYaml .Values.cube.podSecurityContext | nindent 8 }}
+      {{- end }}
       containers:
       - name: cube
         image: {{ .Values.cube.image }}
+        {{- if .Values.cube.securityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: false
-          capabilities:
-            drop:
-            - ALL
+          {{- toYaml .Values.cube.securityContext | nindent 10 }}
+        {{- end }}
         ports:
         - containerPort: {{ .Values.cube.apiPort }}
           name: api

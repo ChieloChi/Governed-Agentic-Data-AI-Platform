@@ -15,22 +15,17 @@ spec:
       labels:
         app: qdrant
     spec:
+      {{- if .Values.qdrant.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
+        {{- toYaml .Values.qdrant.podSecurityContext | nindent 8 }}
+      {{- end }}
       containers:
       - name: qdrant
         image: {{ .Values.qdrant.image }}
+        {{- if .Values.qdrant.securityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: false
-          capabilities:
-            drop:
-            - ALL
+          {{- toYaml .Values.qdrant.securityContext | nindent 10 }}
+        {{- end }}
         ports:
         - containerPort: {{ .Values.qdrant.httpPort }}
           name: http

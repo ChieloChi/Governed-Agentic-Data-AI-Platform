@@ -15,22 +15,17 @@ spec:
       labels:
         app: redis-cache
     spec:
+      {{- if .Values.redis.podSecurityContext }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 999 # Standard redis user in alpine
-        runAsGroup: 999
-        fsGroup: 999
-        seccompProfile:
-          type: RuntimeDefault
+        {{- toYaml .Values.redis.podSecurityContext | nindent 8 }}
+      {{- end }}
       containers:
       - name: redis
         image: {{ .Values.redis.image }}
+        {{- if .Values.redis.securityContext }}
         securityContext:
-          allowPrivilegeEscalation: false
-          readOnlyRootFilesystem: false
-          capabilities:
-            drop:
-            - ALL
+          {{- toYaml .Values.redis.securityContext | nindent 10 }}
+        {{- end }}
         ports:
         - containerPort: {{ .Values.redis.port }}
         resources:

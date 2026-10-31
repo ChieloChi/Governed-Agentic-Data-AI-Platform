@@ -1,0 +1,110 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-postgres-init
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS players (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) NOT NULL,
+        country VARCHAR(10) NOT NULL,
+        risk_tier VARCHAR(20) DEFAULT 'STANDARD',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS transactions (
+        id SERIAL PRIMARY KEY,
+        player_id INT REFERENCES players(id),
+        transaction_type VARCHAR(20) NOT NULL,
+        amount NUMERIC(12, 2) NOT NULL,
+        currency VARCHAR(5) DEFAULT 'EUR',
+        status VARCHAR(20) DEFAULT 'COMPLETED',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS game_sessions (
+        id SERIAL PRIMARY KEY,
+        player_id INT REFERENCES players(id),
+        game_category VARCHAR(50) NOT NULL,
+        bet_amount NUMERIC(12, 2) NOT NULL,
+        win_amount NUMERIC(12, 2) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO players (id, username, country, risk_tier, created_at) VALUES
+    (1, 'nordic_gamer', 'SE', 'VIP', '2026-01-10 10:00:00'),
+    (2, 'stockholm_ace', 'SE', 'STANDARD', '2026-02-14 12:30:00'),
+    (3, 'london_punters', 'UK', 'HIGH_RISK', '2026-03-01 09:15:00'),
+    (4, 'valletta_player', 'MT', 'STANDARD', '2026-03-12 14:00:00'),
+    (5, 'rio_apostas', 'BR', 'STANDARD', '2026-04-05 18:45:00');
+
+    INSERT INTO transactions (player_id, transaction_type, amount, currency, status, created_at) VALUES
+    (1, 'DEPOSIT', 5000.00, 'EUR', 'COMPLETED', '2026-09-01 10:00:00'),
+    (1, 'DEPOSIT', 2500.00, 'EUR', 'COMPLETED', '2026-09-15 11:30:00'),
+    (2, 'DEPOSIT', 300.00, 'EUR', 'COMPLETED', '2026-09-16 14:20:00'),
+    (3, 'DEPOSIT', 10000.00, 'GBP', 'COMPLETED', '2026-09-18 09:00:00'),
+    (3, 'WITHDRAWAL', 4000.00, 'GBP', 'COMPLETED', '2026-09-19 16:00:00'),
+    (4, 'DEPOSIT', 750.00, 'EUR', 'COMPLETED', '2026-09-20 18:10:00'),
+    (5, 'DEPOSIT', 1200.00, 'BRL', 'COMPLETED', '2026-09-22 20:00:00');
+
+    INSERT INTO game_sessions (player_id, game_category, bet_amount, win_amount, created_at) VALUES
+    (1, 'SPORTSBOOK', 4000.00, 2800.00, '2026-09-02 12:00:00'),
+    (1, 'CASINO', 2000.00, 1100.00, '2026-09-15 14:00:00'),
+    (2, 'CASINO', 250.00, 50.00, '2026-09-16 15:30:00'),
+    (3, 'SPORTSBOOK', 8000.00, 5200.00, '2026-09-18 10:30:00'),
+    (4, 'LIVE_DEALER', 600.00, 450.00, '2026-09-20 19:00:00'),
+    (5, 'SPORTSBOOK', 1000.00, 600.00, '2026-09-22 21:00:00');
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-postgres
+  labels:
+    app: analytics-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics-postgres
+  template:
+    metadata:
+      labels:
+        app: analytics-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: {{ .Values.postgres.image }}
+        ports:
+        - containerPort: {{ .Values.postgres.port }}
+        env:
+        - name: POSTGRES_DB
+          value: {{ .Values.postgres.dbName }}
+        - name: POSTGRES_USER
+          value: {{ .Values.postgres.dbUser }}
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: postgres-password
+        volumeMounts:
+        - name: init-sql-volume
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          {{- toYaml .Values.postgres.resources | nindent 10 }}
+      volumes:
+      - name: init-sql-volume
+        configMap:
+          name: {{ .Release.Name }}-postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+spec:
+  selector:
+    app: analytics-postgres
+  ports:
+  - port: {{ .Values.postgres.port }}
+    targetPort: {{ .Values.postgres.port }}
+{{- end }}

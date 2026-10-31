@@ -1,0 +1,55 @@
+{{- if .Values.keycloak.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-keycloak
+  labels:
+    app: keycloak-iam
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak-iam
+  template:
+    metadata:
+      labels:
+        app: keycloak-iam
+    spec:
+      containers:
+      - name: keycloak
+        image: {{ .Values.keycloak.image }}
+        args: ["start-dev"]
+        ports:
+        - containerPort: {{ .Values.keycloak.port }}
+          name: http
+        env:
+        - name: KEYCLOAK_ADMIN
+          value: "admin"
+        - name: KEYCLOAK_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: keycloak-admin-password
+              optional: true
+        - name: KC_HTTP_RELATIVE_PATH
+          value: "/"
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-service
+spec:
+  selector:
+    app: keycloak-iam
+  ports:
+  - port: {{ .Values.keycloak.port }}
+    targetPort: {{ .Values.keycloak.port }}
+{{- end }}
+

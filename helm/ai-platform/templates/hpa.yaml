@@ -1,0 +1,93 @@
+{{- if and .Values.litellm.enabled .Values.litellm.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-litellm-hpa
+  labels:
+    app: litellm-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-litellm
+  minReplicas: {{ .Values.litellm.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.litellm.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.litellm.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.litellm.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.litellm.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.litellm.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+---
+{{- end }}
+
+{{- if and .Values.cube.enabled .Values.cube.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-cube-hpa
+  labels:
+    app: cube-semantic-layer
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-cube
+  minReplicas: {{ .Values.cube.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.cube.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.cube.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.cube.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    {{- if .Values.cube.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.cube.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+---
+{{- end }}
+
+{{- if and .Values.vllm.enabled .Values.vllm.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-vllm-hpa
+  labels:
+    app: vllm-inference
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-vllm
+  minReplicas: {{ .Values.vllm.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.vllm.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.vllm.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.vllm.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+{{- end }}
+

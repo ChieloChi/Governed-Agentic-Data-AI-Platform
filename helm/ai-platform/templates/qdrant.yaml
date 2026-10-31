@@ -1,0 +1,44 @@
+{{- if .Values.qdrant.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-qdrant
+  labels:
+    app: qdrant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      containers:
+      - name: qdrant
+        image: {{ .Values.qdrant.image }}
+        ports:
+        - containerPort: {{ .Values.qdrant.httpPort }}
+          name: http
+        - containerPort: {{ .Values.qdrant.grpcPort }}
+          name: grpc
+        resources:
+          {{- toYaml .Values.qdrant.resources | nindent 10 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant-service
+spec:
+  selector:
+    app: qdrant
+  ports:
+  - port: {{ .Values.qdrant.httpPort }}
+    targetPort: {{ .Values.qdrant.httpPort }}
+    name: http
+  - port: {{ .Values.qdrant.grpcPort }}
+    targetPort: {{ .Values.qdrant.grpcPort }}
+    name: grpc
+{{- end }}
+

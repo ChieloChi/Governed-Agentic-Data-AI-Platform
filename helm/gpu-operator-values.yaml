@@ -1,0 +1,47 @@
+# Production GPU Operator configuration for AWS EKS (Immutable AMI architecture)
+driver:
+  enabled: false
+
+toolkit:
+  enabled: false
+
+devicePlugin:
+  enabled: true
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+dcgmExporter:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+gfd:
+  enabled: true
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+validator:
+  enabled: true
+  tolerations:
+    - key: "nvidia.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+mig:
+  strategy: none
+
+node-feature-discovery:
+  worker:
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+

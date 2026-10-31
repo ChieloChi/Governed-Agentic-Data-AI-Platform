@@ -1,0 +1,165 @@
+{{- if .Values.cube.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-cube-schema
+data:
+  Transactions.js: |
+    cube(`Transactions`, {
+      sql: `SELECT * FROM public.transactions`,
+      joins: {
+        Players: {
+          relationship: `belongsTo`,
+          sql: `${CUBE}.player_id = ${Players.id}`
+        }
+      },
+      measures: {
+        count: { type: `count` },
+        totalAmount: { sql: `amount`, type: `sum`, format: `currency` },
+        depositVolume: {
+          sql: `amount`,
+          type: `sum`,
+          filters: [{ sql: `${CUBE}.transaction_type = 'DEPOSIT'` }]
+        },
+        withdrawalVolume: {
+          sql: `amount`,
+          type: `sum`,
+          filters: [{ sql: `${CUBE}.transaction_type = 'WITHDRAWAL'` }]
+        }
+      },
+      dimensions: {
+        id: { sql: `id`, type: `number`, primaryKey: true },
+        transactionType: { sql: `transaction_type`, type: `string` },
+        currency: { sql: `currency`, type: `string` },
+        createdAt: { sql: `created_at`, type: `time` }
+      }
+    });
+
+  Players.js: |
+    cube(`Players`, {
+      sql: `SELECT * FROM public.players`,
+      measures: {
+        count: { type: `count` }
+      },
+      dimensions: {
+        id: { sql: `id`, type: `number`, primaryKey: true },
+        username: { sql: `username`, type: `string` },
+        country: { sql: `country`, type: `string` },
+        riskTier: { sql: `risk_tier`, type: `string` },
+        createdAt: { sql: `created_at`, type: `time` }
+      }
+    });
+
+  GameSessions.js: |
+    cube(`GameSessions`, {
+      sql: `SELECT * FROM public.game_sessions`,
+      joins: {
+        Players: {
+          relationship: `belongsTo`,
+          sql: `${CUBE}.player_id = ${Players.id}`
+        }
+      },
+      measures: {
+        totalBets: { sql: `bet_amount`, type: `sum`, format: `currency` },
+        totalWins: { sql: `win_amount`, type: `sum`, format: `currency` },
+        grossGamingRevenue: {
+          sql: `${totalBets} - ${totalWins}`,
+          type: `number`,
+          format: `currency`
+        }
+      },
+      dimensions: {
+        id: { sql: `id`, type: `number`, primaryKey: true },
+        gameCategory: { sql: `game_category`, type: `string` },
+        createdAt: { sql: `created_at`, type: `time` }
+      }
+    });
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-cube
+  labels:
+    app: cube-semantic-layer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cube-semantic-layer
+  template:
+    metadata:
+      labels:
+        app: cube-semantic-layer
+    spec:
+      containers:
+      - name: cube
+        image: {{ .Values.cube.image }}
+        ports:
+        - containerPort: {{ .Values.cube.apiPort }}
+          name: api
+        - containerPort: {{ .Values.cube.sqlPort }}
+          name: sql-api
+        env:
+        - name: CUBEJS_DB_TYPE
+          value: "postgres"
+        - name: CUBEJS_DB_HOST
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.host | quote }}
+          {{- else }}
+          value: "postgres-service"
+          {{- end }}
+        - name: CUBEJS_DB_PORT
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.port | quote }}
+          {{- else }}
+          value: "{{ .Values.postgres.port }}"
+          {{- end }}
+        - name: CUBEJS_DB_NAME
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.dbName | quote }}
+          {{- else }}
+          value: {{ .Values.postgres.dbName | quote }}
+          {{- end }}
+        - name: CUBEJS_DB_USER
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.dbUser | quote }}
+          {{- else }}
+          value: {{ .Values.postgres.dbUser | quote }}
+          {{- end }}
+        - name: CUBEJS_DB_PASS
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: postgres-password
+        - name: CUBEJS_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: cube-api-secret
+        - name: CUBEJS_DEV_MODE
+          value: "{{ .Values.cube.devMode }}"
+        volumeMounts:
+        - name: schema-volume
+          mountPath: /cube/conf/schema
+        resources:
+          {{- toYaml .Values.cube.resources | nindent 10 }}
+      volumes:
+      - name: schema-volume
+        configMap:
+          name: {{ .Release.Name }}-cube-schema
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cube-service
+spec:
+  selector:
+    app: cube-semantic-layer
+  ports:
+  - port: {{ .Values.cube.apiPort }}
+    targetPort: {{ .Values.cube.apiPort }}
+    name: api
+  - port: {{ .Values.cube.sqlPort }}
+    targetPort: {{ .Values.cube.sqlPort }}
+    name: sql-api
+{{- end }}

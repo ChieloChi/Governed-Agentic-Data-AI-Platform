@@ -1,0 +1,25 @@
+========================================================================
+🎉 Governed Agentic Data & AI Platform (GDP-AI) Deployed Successfully!
+========================================================================
+
+1. Get the application URL for the LiteLLM AI Gateway:
+{{- if contains "LoadBalancer" .Values.litellm.serviceType | default true }}
+  NOTE: It may take a few minutes for the AWS LoadBalancer to resolve.
+  export GATEWAY_URL=$(kubectl get svc litellm-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+  echo "LiteLLM Gateway Endpoint: http://$GATEWAY_URL:{{ .Values.litellm.port }}"
+{{- else }}
+  export POD_NAME=$(kubectl get pods -l "app=litellm-gateway" -o jsonpath="{.items[0].metadata.name}")
+  kubectl --namespace default port-forward $POD_NAME 4000:{{ .Values.litellm.port }}
+{{- end }}
+
+2. Cube.js Semantic Engine:
+  - REST & GraphQL API: http://cube-service:{{ .Values.cube.apiPort }}
+  - CubeSQL (Postgres-compatible): cube-service:{{ .Values.cube.sqlPort }}
+
+3. Run the End-to-End Governed Verification Test:
+  python3 tests/test_governed_analytics.py
+
+4. Run the RAG Reference Pipeline:
+  python3 tests/test_rag.py
+========================================================================
+

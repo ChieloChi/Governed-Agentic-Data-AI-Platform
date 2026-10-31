@@ -1,0 +1,69 @@
+{{- if .Values.vllm.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-vllm
+  labels:
+    app: vllm-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-inference
+  template:
+    metadata:
+      labels:
+        app: vllm-inference
+    spec:
+      tolerations:
+      - key: {{ .Values.vllm.gpuToleration }}
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      nodeSelector:
+        {{- toYaml .Values.vllm.nodeSelector | nindent 8 }}
+      containers:
+      - name: vllm
+        image: {{ .Values.vllm.image }}
+        args:
+          - "--model"
+          - {{ .Values.vllm.model }}
+          - "--port"
+          - "{{ .Values.vllm.port }}"
+          - "--dtype"
+          - {{ .Values.vllm.dtype }}
+          - "--gpu-memory-utilization"
+          - "{{ .Values.vllm.gpuMemoryUtilization }}"
+          - "--max-model-len"
+          - "{{ .Values.vllm.maxModelLen }}"
+        ports:
+        - containerPort: {{ .Values.vllm.port }}
+          name: http
+        resources:
+          {{- toYaml .Values.vllm.resources | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.vllm.port }}
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        volumeMounts:
+        - name: hf-cache
+          mountPath: /root/.cache/huggingface
+      volumes:
+      - name: hf-cache
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-service
+spec:
+  selector:
+    app: vllm-inference
+  ports:
+  - port: {{ .Values.vllm.port }}
+    targetPort: {{ .Values.vllm.port }}
+    name: http
+{{- end }}
+

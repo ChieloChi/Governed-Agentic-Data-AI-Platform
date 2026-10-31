@@ -1,0 +1,9 @@
+# Git ignore real secrets and state
+.env
+*.secret.yaml
+k8s/gateway/secret.yaml
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+

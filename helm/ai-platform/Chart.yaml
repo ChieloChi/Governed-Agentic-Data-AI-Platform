@@ -1,0 +1,9 @@
+apiVersion: v2
+name: ai-platform
+description: Production-grade Governed Agentic Data & AI Platform on AWS EKS
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+maintainers:
+  - name: Platform Engineering Team
+

@@ -1,0 +1,44 @@
+{{- if and .Values.litellm.enabled .Values.litellm.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-litellm-pdb
+  labels:
+    app: litellm-gateway
+spec:
+  minAvailable: {{ .Values.litellm.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: litellm-gateway
+---
+{{- end }}
+
+{{- if and .Values.cube.enabled .Values.cube.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-cube-pdb
+  labels:
+    app: cube-semantic-layer
+spec:
+  minAvailable: {{ .Values.cube.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: cube-semantic-layer
+---
+{{- end }}
+
+{{- if and .Values.vllm.enabled .Values.vllm.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-vllm-pdb
+  labels:
+    app: vllm-inference
+spec:
+  minAvailable: {{ .Values.vllm.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app: vllm-inference
+{{- end }}
+

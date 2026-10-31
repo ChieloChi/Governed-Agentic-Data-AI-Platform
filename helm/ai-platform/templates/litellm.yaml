@@ -1,0 +1,70 @@
+{{- if .Values.litellm.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-litellm-config
+data:
+  config.yaml: |
+    model_list:
+      - model_name: local-ai
+        litellm_params:
+          model: openai/{{ .Values.vllm.model }}
+          api_base: http://vllm-service:{{ .Values.vllm.port }}/v1
+          api_key: "none"
+    
+    litellm_settings:
+      cache: true
+      cache_type: redis
+      redis_url: redis://redis-service:{{ .Values.redis.port }}
+      set_verbose: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-litellm
+  labels:
+    app: litellm-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: litellm-gateway
+  template:
+    metadata:
+      labels:
+        app: litellm-gateway
+    spec:
+      containers:
+      - name: litellm
+        image: {{ .Values.litellm.image }}
+        args: ["--config", "/etc/litellm/config.yaml", "--port", "{{ .Values.litellm.port }}"]
+        ports:
+        - containerPort: {{ .Values.litellm.port }}
+        env:
+        - name: LITELLM_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: litellm-master-key
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/litellm
+        resources:
+          {{- toYaml .Values.litellm.resources | nindent 10 }}
+      volumes:
+      - name: config-volume
+        configMap:
+          name: {{ .Release.Name }}-litellm-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: litellm-gateway
+  ports:
+  - port: {{ .Values.litellm.port }}
+    targetPort: {{ .Values.litellm.port }}
+{{- end }}

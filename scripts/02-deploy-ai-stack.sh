@@ -6,7 +6,13 @@ echo "📦 STEP 2: Deploying Production AI Platform via Unified Helm"
 echo "============================================================"
 
 PROJECT_ROOT="$(dirname "$0")/.."
-TF_DIR="$PROJECT_ROOT/terraform"
+ENV="${1:-dev}"
+TF_DIR="$PROJECT_ROOT/terraform/environments/$ENV"
+
+if [ ! -d "$TF_DIR" ]; then
+  echo "❌ Error: Environment '$ENV' not found in $TF_DIR"
+  exit 1
+fi
 
 # Ensure Helm is installed
 if ! command -v helm &>/dev/null; then
@@ -29,7 +35,7 @@ helm upgrade --install gpu-operator nvidia/gpu-operator \
 
 echo "✅ GPU Operator and DCGM Exporter are running in namespace 'gpu-operator'!"
 
-echo "[3/6] Installing External Secrets Operator (IRSA Authentication)..."
+echo "[3/7] Installing External Secrets Operator (IRSA Authentication)..."
 ROLE_ARN=$(cd "$TF_DIR" && terraform output -raw external_secrets_role_arn)
 
 helm upgrade --install external-secrets external-secrets/external-secrets \
@@ -42,13 +48,33 @@ helm upgrade --install external-secrets external-secrets/external-secrets \
 
 echo "✅ External Secrets Operator is authenticated to AWS Secrets Manager!"
 
-echo "[4/6] Deploying Unified AI Platform Helm Chart (Postgres, Cube, LiteLLM, vLLM, Redis, Qdrant)..."
+echo "[4/7] Installing Karpenter Autoscaler (Just-in-Time EC2 Spot GPU)..."
+KARPENTER_ROLE_ARN=$(cd "$TF_DIR" && terraform output -raw karpenter_controller_role_arn)
+CLUSTER_NAME=$(cd "$TF_DIR" && terraform output -raw cluster_name)
+CLUSTER_ENDPOINT=$(cd "$TF_DIR" && terraform output -raw cluster_endpoint)
+QUEUE_NAME=$(cd "$TF_DIR" && terraform output -raw karpenter_queue_name)
+
+helm upgrade --install karpenter oci://public.ecr.aws/karpenter/karpenter \
+  --version 1.0.8 \
+  --namespace kube-system \
+  --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$KARPENTER_ROLE_ARN" \
+  --set settings.clusterName="$CLUSTER_NAME" \
+  --set settings.clusterEndpoint="$CLUSTER_ENDPOINT" \
+  --set settings.interruptionQueue="$QUEUE_NAME" \
+  --wait \
+  --timeout=180s
+
+echo "Applying Karpenter GPU NodePool and EC2NodeClass..."
+kubectl apply -f "$PROJECT_ROOT/k8s/karpenter/gpu-nodepool.yaml"
+echo "✅ Karpenter is active and ready to scale Spot GPU instances dynamically!"
+
+echo "[5/7] Deploying Unified AI Platform Helm Chart (Postgres, Cube, LiteLLM, vLLM, Redis, Qdrant)..."
 helm upgrade --install ai-platform "$PROJECT_ROOT/helm/ai-platform" \
   --namespace default \
   --wait \
   --timeout=400s
 
-echo "[5/6] Waiting for External Secrets Operator to sync litellm-secret..."
+echo "[6/7] Waiting for External Secrets Operator to sync litellm-secret..."
 for i in {1..30}; do
   if kubectl get secret litellm-secret &>/dev/null; then
     echo "✅ Secret 'litellm-secret' synced successfully from AWS Secrets Manager!"
@@ -58,7 +84,7 @@ for i in {1..30}; do
   sleep 3
 done
 
-echo "[6/6] Inspecting GPU Feature Discovery (GFD) Auto-Injected Node Labels:"
+echo "[7/7] Inspecting GPU Feature Discovery (GFD) Auto-Injected Node Labels:"
 kubectl get nodes -l role=gpu-inference --show-labels | tr ',' '\n' | grep -E 'nvidia\.com' || true
 
 echo ""

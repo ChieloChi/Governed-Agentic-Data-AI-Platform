@@ -75,28 +75,29 @@ data:
       }
     });
 ---
+# 1. Cube API Deployment (Dedicated to serving user & AI agent traffic)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-cube
+  name: {{ .Release.Name }}-cube-api
   labels:
-    app: cube-semantic-layer
+    app: cube-api
 spec:
-  replicas: {{ .Values.cube.replicaCount | default 1 }}
+  replicas: {{ .Values.cube.api.replicaCount | default 1 }}
   selector:
     matchLabels:
-      app: cube-semantic-layer
+      app: cube-api
   template:
     metadata:
       labels:
-        app: cube-semantic-layer
+        app: cube-api
     spec:
       {{- if .Values.cube.podSecurityContext }}
       securityContext:
         {{- toYaml .Values.cube.podSecurityContext | nindent 8 }}
       {{- end }}
       containers:
-      - name: cube
+      - name: cube-api
         image: {{ .Values.cube.image }}
         {{- if .Values.cube.securityContext }}
         securityContext:
@@ -108,8 +109,22 @@ spec:
         - containerPort: {{ .Values.cube.sqlPort }}
           name: sql-api
         env:
+        - name: CUBEJS_REFRESH_WORKER
+          value: "false" # Disables background processing on API pods!
         - name: CUBEJS_DB_TYPE
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.type | default "postgres" | quote }}
+          {{- else }}
           value: "postgres"
+          {{- end }}
+        {{- if and .Values.externalDatabase.enabled (or (eq .Values.externalDatabase.type "athena") (eq .Values.externalDatabase.type "aws_athena")) }}
+        - name: CUBEJS_DB_ATHENA_REGION
+          value: {{ .Values.externalDatabase.athena.region | quote }}
+        - name: CUBEJS_DB_ATHENA_WORKGROUP
+          value: {{ .Values.externalDatabase.athena.workgroup | quote }}
+        - name: CUBEJS_DB_ATHENA_S3_OUTPUT_LOCATION
+          value: {{ .Values.externalDatabase.athena.s3OutputLocation | quote }}
+        {{- else }}
         - name: CUBEJS_DB_HOST
           {{- if .Values.externalDatabase.enabled }}
           value: {{ .Values.externalDatabase.host | quote }}
@@ -139,6 +154,7 @@ spec:
             secretKeyRef:
               name: platform-secrets
               key: postgres-password
+        {{- end }}
         - name: CUBEJS_API_SECRET
           valueFrom:
             secretKeyRef:
@@ -146,12 +162,51 @@ spec:
               key: cube-api-secret
         - name: CUBEJS_DEV_MODE
           value: "{{ .Values.cube.devMode }}"
+        {{- if .Values.cubeStore.enabled }}
+        - name: CUBEJS_CUBESTORE_HOST
+          value: "{{ .Release.Name }}-cubestore-router:{{ .Values.cubeStore.router.port | default 9999 }}"
+        - name: CUBEJS_DB_EXPORT_BUCKET
+          {{- if .Values.objectStorage.s3.enabled }}
+          value: {{ .Values.cubeStore.s3.bucket | default .Values.objectStorage.s3.bucket | quote }}
+          {{- else if .Values.objectStorage.minio.enabled }}
+          value: {{ .Values.cubeStore.minio.bucket | default .Values.objectStorage.minio.defaultBucket | quote }}
+          {{- else }}
+          value: "cubestore-export"
+          {{- end }}
+        {{- end }}
+        {{- with .Values.cube.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.externalDatabase.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        startupProbe:
+          httpGet:
+            path: /readyz
+            port: {{ .Values.cube.apiPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: {{ .Values.cube.apiPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: {{ .Values.cube.apiPort }}
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 3
         volumeMounts:
         - name: schema-volume
           mountPath: /cube/conf/schema
           readOnly: true
         resources:
-          {{- toYaml .Values.cube.resources | nindent 10 }}
+          {{- toYaml .Values.cube.api.resources | nindent 10 }}
       volumes:
       - name: schema-volume
         configMap:
@@ -163,7 +218,7 @@ metadata:
   name: cube-service
 spec:
   selector:
-    app: cube-semantic-layer
+    app: cube-api
   ports:
   - port: {{ .Values.cube.apiPort }}
     targetPort: {{ .Values.cube.apiPort }}
@@ -171,4 +226,131 @@ spec:
   - port: {{ .Values.cube.sqlPort }}
     targetPort: {{ .Values.cube.sqlPort }}
     name: sql-api
+---
+{{- if .Values.cube.worker.enabled }}
+# 2. Cube Refresh Worker Deployment (Dedicated to background pre-aggregations & scheduled rollups)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-cube-worker
+  labels:
+    app: cube-worker
+spec:
+  replicas: {{ .Values.cube.worker.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: cube-worker
+  template:
+    metadata:
+      labels:
+        app: cube-worker
+    spec:
+      {{- if .Values.cube.podSecurityContext }}
+      securityContext:
+        {{- toYaml .Values.cube.podSecurityContext | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: cube-worker
+        image: {{ .Values.cube.image }}
+        {{- if .Values.cube.securityContext }}
+        securityContext:
+          {{- toYaml .Values.cube.securityContext | nindent 10 }}
+        {{- end }}
+        env:
+        - name: CUBEJS_REFRESH_WORKER
+          value: "true" # Enables dedicated background pre-aggregation processing!
+        - name: CUBEJS_DB_TYPE
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.type | default "postgres" | quote }}
+          {{- else }}
+          value: "postgres"
+          {{- end }}
+        {{- if and .Values.externalDatabase.enabled (or (eq .Values.externalDatabase.type "athena") (eq .Values.externalDatabase.type "aws_athena")) }}
+        - name: CUBEJS_DB_ATHENA_REGION
+          value: {{ .Values.externalDatabase.athena.region | quote }}
+        - name: CUBEJS_DB_ATHENA_WORKGROUP
+          value: {{ .Values.externalDatabase.athena.workgroup | quote }}
+        - name: CUBEJS_DB_ATHENA_S3_OUTPUT_LOCATION
+          value: {{ .Values.externalDatabase.athena.s3OutputLocation | quote }}
+        {{- else }}
+        - name: CUBEJS_DB_HOST
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.host | quote }}
+          {{- else }}
+          value: "postgres-service"
+          {{- end }}
+        - name: CUBEJS_DB_PORT
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.port | quote }}
+          {{- else }}
+          value: "{{ .Values.postgres.port }}"
+          {{- end }}
+        - name: CUBEJS_DB_NAME
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.dbName | quote }}
+          {{- else }}
+          value: {{ .Values.postgres.dbName | quote }}
+          {{- end }}
+        - name: CUBEJS_DB_USER
+          {{- if .Values.externalDatabase.enabled }}
+          value: {{ .Values.externalDatabase.dbUser | quote }}
+          {{- else }}
+          value: {{ .Values.postgres.dbUser | quote }}
+          {{- end }}
+        - name: CUBEJS_DB_PASS
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: postgres-password
+        {{- end }}
+        - name: CUBEJS_API_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: cube-api-secret
+        - name: CUBEJS_DEV_MODE
+          value: "{{ .Values.cube.devMode }}"
+        {{- if .Values.cubeStore.enabled }}
+        - name: CUBEJS_CUBESTORE_HOST
+          value: "{{ .Release.Name }}-cubestore-router:{{ .Values.cubeStore.router.port | default 9999 }}"
+        - name: CUBEJS_DB_EXPORT_BUCKET
+          {{- if .Values.objectStorage.s3.enabled }}
+          value: {{ .Values.cubeStore.s3.bucket | default .Values.objectStorage.s3.bucket | quote }}
+          {{- else if .Values.objectStorage.minio.enabled }}
+          value: {{ .Values.cubeStore.minio.bucket | default .Values.objectStorage.minio.defaultBucket | quote }}
+          {{- else }}
+          value: "cubestore-export"
+          {{- end }}
+        {{- end }}
+        {{- with .Values.cube.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.externalDatabase.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        startupProbe:
+          httpGet:
+            path: /readyz
+            port: {{ .Values.cube.apiPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 20
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: {{ .Values.cube.apiPort }}
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 3
+        volumeMounts:
+        - name: schema-volume
+          mountPath: /cube/conf/schema
+          readOnly: true
+        resources:
+          {{- toYaml .Values.cube.worker.resources | nindent 10 }}
+      volumes:
+      - name: schema-volume
+        configMap:
+          name: {{ .Release.Name }}-cube-schema
+{{- end }}
 {{- end }}

@@ -1,4 +1,22 @@
 {{- if .Values.vllm.enabled }}
+{{- if .Values.vllm.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-vllm-models-pvc
+  labels:
+    app: vllm-inference
+spec:
+  accessModes:
+    - {{ .Values.vllm.persistence.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.vllm.persistence.size | default "20Gi" }}
+  {{- if .Values.vllm.persistence.storageClass }}
+  storageClassName: {{ .Values.vllm.persistence.storageClass | quote }}
+  {{- end }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +25,8 @@ metadata:
     app: vllm-inference
 spec:
   replicas: {{ .Values.vllm.replicaCount | default 1 }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: vllm-inference
@@ -49,12 +69,27 @@ spec:
           name: http
         resources:
           {{- toYaml .Values.vllm.resources | nindent 10 }}
+        startupProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.vllm.port }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 30
         readinessProbe:
           httpGet:
             path: /health
             port: {{ .Values.vllm.port }}
-          initialDelaySeconds: 60
+          initialDelaySeconds: 10
           periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.vllm.port }}
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          timeoutSeconds: 5
         volumeMounts:
         - name: hf-cache
           mountPath: /root/.cache/huggingface
@@ -62,7 +97,12 @@ spec:
           mountPath: /tmp
       volumes:
       - name: hf-cache
+        {{- if .Values.vllm.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-vllm-models-pvc
+        {{- else }}
         emptyDir: {}
+        {{- end }}
       - name: tmp-volume
         emptyDir: {}
 ---

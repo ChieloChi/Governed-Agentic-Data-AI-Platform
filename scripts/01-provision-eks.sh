@@ -5,7 +5,17 @@ echo "============================================================"
 echo "🚀 STEP 1: Provisioning Ephemeral AI EKS Cluster with Terraform"
 echo "============================================================"
 
-cd "$(dirname "$0")/../terraform"
+ENV="${1:-dev}"
+PROJECT_ROOT="$(dirname "$0")/.."
+TF_DIR="$PROJECT_ROOT/terraform/environments/$ENV"
+
+if [ ! -d "$TF_DIR" ]; then
+  echo "❌ Error: Environment '$ENV' not found in $TF_DIR"
+  exit 1
+fi
+
+echo "Deploying target environment: $ENV"
+cd "$TF_DIR"
 
 echo "[1/3] Initializing Terraform..."
 terraform init

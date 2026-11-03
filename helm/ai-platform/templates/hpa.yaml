@@ -1,4 +1,4 @@
-{{- if and .Values.litellm.enabled .Values.litellm.autoscaling.enabled }}
+{{- if and .Values.litellm.enabled .Values.litellm.autoscaling.enabled (not (and .Values.keda.enabled .Values.keda.litellm.enabled)) }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -32,41 +32,41 @@ spec:
 ---
 {{- end }}
 
-{{- if and .Values.cube.enabled .Values.cube.autoscaling.enabled }}
+{{- if and .Values.cube.enabled .Values.cube.api.autoscaling.enabled }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ .Release.Name }}-cube-hpa
+  name: {{ .Release.Name }}-cube-api-hpa
   labels:
-    app: cube-semantic-layer
+    app: cube-api
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ .Release.Name }}-cube
-  minReplicas: {{ .Values.cube.autoscaling.minReplicas }}
-  maxReplicas: {{ .Values.cube.autoscaling.maxReplicas }}
+    name: {{ .Release.Name }}-cube-api
+  minReplicas: {{ .Values.cube.api.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.cube.api.autoscaling.maxReplicas }}
   metrics:
-    {{- if .Values.cube.autoscaling.targetCPUUtilizationPercentage }}
+    {{- if .Values.cube.api.autoscaling.targetCPUUtilizationPercentage }}
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: {{ .Values.cube.autoscaling.targetCPUUtilizationPercentage }}
+          averageUtilization: {{ .Values.cube.api.autoscaling.targetCPUUtilizationPercentage }}
     {{- end }}
-    {{- if .Values.cube.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- if .Values.cube.api.autoscaling.targetMemoryUtilizationPercentage }}
     - type: Resource
       resource:
         name: memory
         target:
           type: Utilization
-          averageUtilization: {{ .Values.cube.autoscaling.targetMemoryUtilizationPercentage }}
+          averageUtilization: {{ .Values.cube.api.autoscaling.targetMemoryUtilizationPercentage }}
     {{- end }}
 ---
 {{- end }}
 
-{{- if and .Values.vllm.enabled .Values.vllm.autoscaling.enabled }}
+{{- if and .Values.vllm.enabled .Values.vllm.autoscaling.enabled (not (and .Values.keda.enabled .Values.keda.vllm.enabled)) }}
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -90,4 +90,3 @@ spec:
           averageUtilization: {{ .Values.vllm.autoscaling.targetCPUUtilizationPercentage }}
     {{- end }}
 {{- end }}
-

@@ -13,18 +13,18 @@ spec:
 ---
 {{- end }}
 
-{{- if and .Values.cube.enabled .Values.cube.pdb.enabled }}
+{{- if and .Values.cube.enabled .Values.cube.api.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ .Release.Name }}-cube-pdb
+  name: {{ .Release.Name }}-cube-api-pdb
   labels:
-    app: cube-semantic-layer
+    app: cube-api
 spec:
-  minAvailable: {{ .Values.cube.pdb.minAvailable }}
+  minAvailable: {{ .Values.cube.api.pdb.minAvailable }}
   selector:
     matchLabels:
-      app: cube-semantic-layer
+      app: cube-api
 ---
 {{- end }}
 
@@ -41,4 +41,3 @@ spec:
     matchLabels:
       app: vllm-inference
 {{- end }}
-

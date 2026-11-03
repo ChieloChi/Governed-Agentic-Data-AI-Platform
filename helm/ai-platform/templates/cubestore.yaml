@@ -1,0 +1,263 @@
+{{- if .Values.cubeStore.enabled }}
+# 1. Cube Store Router Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-cubestore-router
+  labels:
+    app: cubestore-router
+spec:
+  selector:
+    app: cubestore-router
+  ports:
+  - name: meta
+    port: {{ .Values.cubeStore.router.port | default 9999 }}
+    targetPort: {{ .Values.cubeStore.router.port | default 9999 }}
+  - name: http
+    port: {{ .Values.cubeStore.router.httpPort | default 3030 }}
+    targetPort: {{ .Values.cubeStore.router.httpPort | default 3030 }}
+---
+# 2. Cube Store Router Deployment (Query Coordinator & Metadata Planner)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-cubestore-router
+  labels:
+    app: cubestore-router
+spec:
+  replicas: {{ .Values.cubeStore.router.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app: cubestore-router
+  template:
+    metadata:
+      labels:
+        app: cubestore-router
+    spec:
+      {{- if .Values.cubeStore.podSecurityContext }}
+      securityContext:
+        {{- toYaml .Values.cubeStore.podSecurityContext | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: cubestore-router
+        image: {{ .Values.cubeStore.image }}
+        {{- if .Values.cubeStore.securityContext }}
+        securityContext:
+          {{- toYaml .Values.cubeStore.securityContext | nindent 10 }}
+        {{- end }}
+        ports:
+        - name: meta
+          containerPort: {{ .Values.cubeStore.router.port | default 9999 }}
+        - name: http
+          containerPort: {{ .Values.cubeStore.router.httpPort | default 3030 }}
+        env:
+        - name: CUBESTORE_SERVER_NAME
+          value: "{{ .Release.Name }}-cubestore-router:{{ .Values.cubeStore.router.port | default 9999 }}"
+        - name: CUBESTORE_META_PORT
+          value: "{{ .Values.cubeStore.router.port | default 9999 }}"
+        - name: CUBESTORE_HTTP_PORT
+          value: "{{ .Values.cubeStore.router.httpPort | default 3030 }}"
+        - name: CUBESTORE_WORKERS
+          {{- $workers := list }}
+          {{- range $i := until (int .Values.cubeStore.workers.replicaCount) }}
+          {{- $workers = append $workers (printf "%s-cubestore-worker-%d.%s-cubestore-worker-headless:9001" $.Release.Name $i $.Release.Name) }}
+          {{- end }}
+          value: {{ join "," $workers | quote }}
+        {{- if .Values.objectStorage.s3.enabled }}
+        - name: CUBESTORE_S3_BUCKET
+          value: {{ .Values.cubeStore.s3.bucket | default .Values.objectStorage.s3.bucket | quote }}
+        - name: CUBESTORE_S3_REGION
+          value: {{ .Values.cubeStore.s3.region | default .Values.objectStorage.s3.region | quote }}
+        - name: CUBESTORE_S3_SUB_PATH
+          value: {{ .Values.cubeStore.s3.subPath | default "cubestore" | quote }}
+        {{- else if .Values.objectStorage.minio.enabled }}
+        - name: CUBESTORE_S3_BUCKET
+          value: {{ .Values.cubeStore.minio.bucket | default .Values.objectStorage.minio.defaultBucket | quote }}
+        - name: CUBESTORE_S3_REGION
+          value: "us-east-1"
+        - name: CUBESTORE_S3_ENDPOINT
+          value: "http://minio-service:{{ .Values.objectStorage.minio.apiPort }}"
+        - name: CUBESTORE_AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: minio-root-user
+        - name: CUBESTORE_AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: minio-root-password
+        {{- else }}
+        - name: CUBESTORE_REMOTE_DIR
+          value: "/cube/data"
+        {{- end }}
+        startupProbe:
+          tcpSocket:
+            port: {{ .Values.cubeStore.router.port | default 9999 }}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 20
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.cubeStore.router.port | default 9999 }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.cubeStore.router.port | default 9999 }}
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 3
+        volumeMounts:
+        - name: data
+          mountPath: /cube/data
+        resources:
+          {{- toYaml .Values.cubeStore.router.resources | nindent 10 }}
+      volumes:
+      - name: data
+        emptyDir: {}
+---
+# 3. Cube Store Worker Headless Service (Direct Pod-to-Pod Communication & DNS Resolution)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-cubestore-worker-headless
+  labels:
+    app: cubestore-worker
+spec:
+  clusterIP: None
+  selector:
+    app: cubestore-worker
+  ports:
+  - name: worker
+    port: {{ .Values.cubeStore.workers.workerPort | default 9001 }}
+    targetPort: {{ .Values.cubeStore.workers.workerPort | default 9001 }}
+  - name: http
+    port: {{ .Values.cubeStore.workers.httpPort | default 3030 }}
+    targetPort: {{ .Values.cubeStore.workers.httpPort | default 3030 }}
+---
+# 4. Cube Store Worker StatefulSet (Distributed In-Memory / Local SSD Analytical Shards)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-cubestore-worker
+  labels:
+    app: cubestore-worker
+spec:
+  serviceName: {{ .Release.Name }}-cubestore-worker-headless
+  replicas: {{ .Values.cubeStore.workers.replicaCount | default 2 }}
+  selector:
+    matchLabels:
+      app: cubestore-worker
+  template:
+    metadata:
+      labels:
+        app: cubestore-worker
+    spec:
+      {{- if .Values.cubeStore.podSecurityContext }}
+      securityContext:
+        {{- toYaml .Values.cubeStore.podSecurityContext | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: cubestore-worker
+        image: {{ .Values.cubeStore.image }}
+        {{- if .Values.cubeStore.securityContext }}
+        securityContext:
+          {{- toYaml .Values.cubeStore.securityContext | nindent 10 }}
+        {{- end }}
+        ports:
+        - name: worker
+          containerPort: {{ .Values.cubeStore.workers.workerPort | default 9001 }}
+        - name: http
+          containerPort: {{ .Values.cubeStore.workers.httpPort | default 3030 }}
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: CUBESTORE_SERVER_NAME
+          value: "$(POD_NAME).{{ .Release.Name }}-cubestore-worker-headless:{{ .Values.cubeStore.workers.workerPort | default 9001 }}"
+        - name: CUBESTORE_WORKER_PORT
+          value: "{{ .Values.cubeStore.workers.workerPort | default 9001 }}"
+        - name: CUBESTORE_HTTP_PORT
+          value: "{{ .Values.cubeStore.workers.httpPort | default 3030 }}"
+        - name: CUBESTORE_META_ADDR
+          value: "{{ .Release.Name }}-cubestore-router:{{ .Values.cubeStore.router.port | default 9999 }}"
+        - name: CUBESTORE_WORKERS
+          {{- $workers := list }}
+          {{- range $i := until (int .Values.cubeStore.workers.replicaCount) }}
+          {{- $workers = append $workers (printf "%s-cubestore-worker-%d.%s-cubestore-worker-headless:9001" $.Release.Name $i $.Release.Name) }}
+          {{- end }}
+          value: {{ join "," $workers | quote }}
+        {{- if .Values.objectStorage.s3.enabled }}
+        - name: CUBESTORE_S3_BUCKET
+          value: {{ .Values.cubeStore.s3.bucket | default .Values.objectStorage.s3.bucket | quote }}
+        - name: CUBESTORE_S3_REGION
+          value: {{ .Values.cubeStore.s3.region | default .Values.objectStorage.s3.region | quote }}
+        - name: CUBESTORE_S3_SUB_PATH
+          value: {{ .Values.cubeStore.s3.subPath | default "cubestore" | quote }}
+        {{- else if .Values.objectStorage.minio.enabled }}
+        - name: CUBESTORE_S3_BUCKET
+          value: {{ .Values.cubeStore.minio.bucket | default .Values.objectStorage.minio.defaultBucket | quote }}
+        - name: CUBESTORE_S3_REGION
+          value: "us-east-1"
+        - name: CUBESTORE_S3_ENDPOINT
+          value: "http://minio-service:{{ .Values.objectStorage.minio.apiPort }}"
+        - name: CUBESTORE_AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: minio-root-user
+        - name: CUBESTORE_AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: platform-secrets
+              key: minio-root-password
+        {{- else }}
+        - name: CUBESTORE_REMOTE_DIR
+          value: "/cube/data"
+        {{- end }}
+        startupProbe:
+          tcpSocket:
+            port: {{ .Values.cubeStore.workers.workerPort | default 9001 }}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 20
+        readinessProbe:
+          tcpSocket:
+            port: {{ .Values.cubeStore.workers.workerPort | default 9001 }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+        livenessProbe:
+          tcpSocket:
+            port: {{ .Values.cubeStore.workers.workerPort | default 9001 }}
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          timeoutSeconds: 3
+        volumeMounts:
+        - name: data
+          mountPath: /cube/data
+        resources:
+          {{- toYaml .Values.cubeStore.workers.resources | nindent 10 }}
+      {{- if not .Values.cubeStore.workers.persistence.enabled }}
+      volumes:
+      - name: data
+        emptyDir: {}
+      {{- end }}
+  {{- if .Values.cubeStore.workers.persistence.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ {{ .Values.cubeStore.workers.persistence.accessMode | default "ReadWriteOnce" | quote }} ]
+      {{- if .Values.cubeStore.workers.persistence.storageClass }}
+      storageClassName: {{ .Values.cubeStore.workers.persistence.storageClass | quote }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ .Values.cubeStore.workers.persistence.size | default "20Gi" }}
+  {{- end }}
+{{- end }}
+

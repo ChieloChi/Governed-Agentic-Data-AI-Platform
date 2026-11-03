@@ -1,4 +1,22 @@
 {{- if .Values.qdrant.enabled }}
+{{- if .Values.qdrant.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-qdrant-pvc
+  labels:
+    app: qdrant
+spec:
+  accessModes:
+    - {{ .Values.qdrant.persistence.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.qdrant.persistence.size | default "20Gi" }}
+  {{- if .Values.qdrant.persistence.storageClass }}
+  storageClassName: {{ .Values.qdrant.persistence.storageClass | quote }}
+  {{- end }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -7,6 +25,8 @@ metadata:
     app: qdrant
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: qdrant
@@ -31,8 +51,40 @@ spec:
           name: http
         - containerPort: {{ .Values.qdrant.grpcPort }}
           name: grpc
+        startupProbe:
+          httpGet:
+            path: /readyz
+            port: {{ .Values.qdrant.httpPort }}
+          initialDelaySeconds: 3
+          periodSeconds: 3
+          failureThreshold: 10
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: {{ .Values.qdrant.httpPort }}
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          timeoutSeconds: 2
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: {{ .Values.qdrant.httpPort }}
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 2
+        volumeMounts:
+        - name: qdrant-storage
+          mountPath: /qdrant/storage
         resources:
           {{- toYaml .Values.qdrant.resources | nindent 10 }}
+      volumes:
+      - name: qdrant-storage
+        {{- if .Values.qdrant.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-qdrant-pvc
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

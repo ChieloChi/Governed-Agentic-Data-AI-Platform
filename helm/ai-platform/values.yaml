@@ -3,21 +3,6 @@ global:
   environment: "production"
   clusterName: "ai-infra-platform"
 
-# Default hardened security context (Can be toggled or customized per service)
-defaultSecurityContext:
-  pod:
-    runAsNonRoot: true
-    runAsUser: 65510
-    runAsGroup: 65510
-    fsGroup: 65510
-    seccompProfile:
-      type: RuntimeDefault
-  container:
-    allowPrivilegeEscalation: false
-    capabilities:
-      drop:
-        - ALL
-
 # 1. Cloud-Agnostic Secrets Management (Toggle between AWS Secrets Manager and HashiCorp Vault)
 secretsManager:
   aws:
@@ -40,27 +25,32 @@ keycloak:
   image: "quay.io/keycloak/keycloak:24.0"
   port: 8080
   realm: "ai-enterprise"
-  podSecurityContext:
-    runAsNonRoot: true
-    runAsUser: 65510
-    runAsGroup: 65510
-    fsGroup: 65510
-    seccompProfile:
-      type: RuntimeDefault
-  securityContext:
-    allowPrivilegeEscalation: false
-    capabilities:
-      drop:
-        - ALL
 
-# 3. Analytics Datastore (Choose: In-Cluster Self-Managed OR External Managed Database)
+# 3. Hybrid Object Storage (S3 API: Amazon S3 vs. MinIO for Bare-Metal)
+objectStorage:
+  s3:
+    enabled: true
+    bucket: "ai-platform-data-bucket"
+    region: "us-east-1"
+  minio:
+    enabled: false
+    image: "minio/minio:RELEASE.2024-05-10T01-41-38Z"
+    apiPort: 9000
+    consolePort: 9001
+    defaultBucket: "ai-platform-lake"
+
+# 4. Analytics Datastore (Choose: In-Cluster Self-Managed OR External Managed Database)
 postgres:
   enabled: true
   image: "postgres:16-alpine"
   dbName: "enterprise_analytics"
   dbUser: "cube_admin"
   port: 5432
-  # Official postgres default UID/GID is 999 (prevents data directory permission denied)
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 999
@@ -83,19 +73,30 @@ postgres:
 
 externalDatabase:
   enabled: false
+  # Supported types: postgres, redshift, athena, snowflake, bigquery, clickhouse, mysql
+  type: "postgres"
   host: "rds-analytics.xyz.us-east-1.rds.amazonaws.com"
   port: 5432
   dbName: "enterprise_analytics"
   dbUser: "cube_admin"
 
-# 4. Cube.js Semantic Engine
+  # AWS Athena configuration (active when type is "athena" or "aws_athena")
+  athena:
+    region: "us-east-1"
+    workgroup: "primary"
+    s3OutputLocation: "s3://ai-platform-data-bucket/athena-results/"
+
+  # Optional extra connection parameters or secret injections for cloud databases
+  extraEnv: []
+
+# 5. Cube.js Semantic Engine (Decoupled API & Background Refresh Worker Architecture)
 cube:
   enabled: true
   image: "cubejs/cube:v0.36.0"
-  replicaCount: 1
   apiPort: 4000
   sqlPort: 15432
-  devMode: "true"
+  devMode: "false"
+  extraEnv: []
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 65510
@@ -108,24 +109,94 @@ cube:
     capabilities:
       drop:
         - ALL
-  resources:
-    requests:
-      cpu: "250m"
-      memory: "512Mi"
-    limits:
-      cpu: "1000m"
-      memory: "1.5Gi"
-  autoscaling:
-    enabled: true
-    minReplicas: 1
-    maxReplicas: 5
-    targetCPUUtilizationPercentage: 75
-    targetMemoryUtilizationPercentage: 80
-  pdb:
-    enabled: true
-    minAvailable: 1
 
-# 5. vLLM GPU Serving Engine
+  # 5A. Dedicated Cube API Deployment (Serves user & AI agent traffic)
+  api:
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1.5Gi"
+    autoscaling:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 5
+      targetCPUUtilizationPercentage: 75
+      targetMemoryUtilizationPercentage: 80
+    pdb:
+      enabled: true
+      minAvailable: 1
+
+  # 5B. Dedicated Cube Refresh Worker (Processes background pre-aggregations)
+  worker:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi" # Extra memory headroom for background rollups & joins
+
+# 5C. Distributed OLAP Acceleration Engine (Cube Store Router & Worker StatefulSet)
+cubeStore:
+  enabled: false # Set to true for enterprise big datasets (multi-million/billion rows)
+  image: "cubejs/cubestore:v0.36.0"
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65510
+    runAsGroup: 65510
+    fsGroup: 65510
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+  router:
+    replicaCount: 1
+    port: 9999
+    httpPort: 3030
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    persistence:
+      enabled: false
+      size: 10Gi
+      storageClass: ""
+  workers:
+    replicaCount: 2 # Number of distributed worker shards
+    workerPort: 9001
+    httpPort: 3030
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "4Gi"
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: ""
+      accessMode: ReadWriteOnce
+  s3:
+    bucket: "" # Defaults to objectStorage.s3.bucket if empty
+    region: "" # Defaults to objectStorage.s3.region if empty
+    subPath: "cubestore"
+  minio:
+    bucket: "" # Defaults to objectStorage.minio.defaultBucket if empty
+
+# 6. vLLM GPU Serving Engine
 vllm:
   enabled: true
   image: "vllm/vllm-openai:v0.6.3"
@@ -138,6 +209,11 @@ vllm:
   gpuToleration: "nvidia.com/gpu"
   nodeSelector:
     role: "gpu-inference"
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 20Gi
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 65510
@@ -168,7 +244,7 @@ vllm:
     enabled: true
     minAvailable: 1
 
-# 6. LiteLLM AI Gateway
+# 7. LiteLLM AI Gateway
 litellm:
   enabled: true
   image: "ghcr.io/berriai/litellm:main-v1.44.20"
@@ -203,12 +279,11 @@ litellm:
     enabled: true
     minAvailable: 1
 
-# 7. Redis Semantic Prompt Cache
+# 8. Redis Semantic Prompt Cache
 redis:
   enabled: true
   image: "redis:7-alpine"
   port: 6379
-  # Official redis default UID/GID is 999
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 999
@@ -229,12 +304,17 @@ redis:
       cpu: "250m"
       memory: "512Mi"
 
-# 8. Qdrant Vector Database
+# 9. Qdrant Vector Database
 qdrant:
   enabled: true
   image: "qdrant/qdrant:v1.11.0"
   httpPort: 6333
   grpcPort: 6334
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 20Gi
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 65510
@@ -254,3 +334,46 @@ qdrant:
     limits:
       cpu: "1000m"
       memory: "1.5Gi"
+
+# 10. KEDA (Kubernetes Event-driven Autoscaling - Scale-to-Zero FinOps)
+keda:
+  enabled: false # Set to true when KEDA operator is installed on the cluster
+  vllm:
+    enabled: true
+    minReplicaCount: 0 # True Scale-to-Zero! Karpenter terminates GPU node when 0
+    maxReplicaCount: 3
+    cooldownPeriod: 300 # 5 minutes idle cooldown before scaling to zero
+    pollingInterval: 15
+    triggers:
+      - type: prometheus
+        metadata:
+          serverAddress: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+          metricName: "vllm_num_requests_waiting"
+          query: 'sum(vllm:num_requests_waiting{model_name="Qwen/Qwen2.5-0.5B-Instruct"})'
+          threshold: "2"
+  cubeWorker:
+    enabled: true
+    minReplicaCount: 0 # Scales background rollup workers to 0 when no pre-aggregations pending
+    maxReplicaCount: 3
+    cooldownPeriod: 120
+    pollingInterval: 15
+    triggers:
+      - type: redis
+        metadata:
+          address: "redis-service:6379"
+          listName: "cube_jobs"
+          listLength: "1"
+  litellm:
+    enabled: true
+    minReplicaCount: 1 # Gateway stays at 1 minimum for ingress
+    maxReplicaCount: 8
+    cooldownPeriod: 60
+    pollingInterval: 10
+    triggers:
+      - type: prometheus
+        metadata:
+          serverAddress: "http://prometheus-server.monitoring.svc.cluster.local:9090"
+          metricName: "litellm_requests_per_second"
+          query: "sum(rate(litellm_proxy_total_requests_bucket[1m]))"
+          threshold: "15"
+

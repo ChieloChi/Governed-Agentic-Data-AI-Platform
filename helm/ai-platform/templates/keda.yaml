@@ -1,0 +1,67 @@
+{{- if .Values.keda.enabled }}
+{{- if and .Values.vllm.enabled .Values.keda.vllm.enabled }}
+# 1. KEDA ScaledObject for vLLM GPU Serving (True Scale-to-Zero FinOps)
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ .Release.Name }}-vllm-keda
+  labels:
+    app: vllm-inference
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-vllm
+  pollingInterval: {{ .Values.keda.vllm.pollingInterval | default 15 }}
+  cooldownPeriod: {{ .Values.keda.vllm.cooldownPeriod | default 300 }}
+  minReplicaCount: {{ .Values.keda.vllm.minReplicaCount | default 0 }}
+  maxReplicaCount: {{ .Values.keda.vllm.maxReplicaCount | default 3 }}
+  triggers:
+    {{- toYaml .Values.keda.vllm.triggers | nindent 4 }}
+---
+{{- end }}
+
+{{- if and .Values.cube.enabled .Values.cube.worker.enabled .Values.keda.cubeWorker.enabled }}
+# 2. KEDA ScaledObject for Cube Refresh Worker (Event-driven Pre-Aggregation Processing)
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ .Release.Name }}-cube-worker-keda
+  labels:
+    app: cube-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-cube-worker
+  pollingInterval: {{ .Values.keda.cubeWorker.pollingInterval | default 15 }}
+  cooldownPeriod: {{ .Values.keda.cubeWorker.cooldownPeriod | default 120 }}
+  minReplicaCount: {{ .Values.keda.cubeWorker.minReplicaCount | default 0 }}
+  maxReplicaCount: {{ .Values.keda.cubeWorker.maxReplicaCount | default 3 }}
+  triggers:
+    {{- toYaml .Values.keda.cubeWorker.triggers | nindent 4 }}
+---
+{{- end }}
+
+{{- if and .Values.litellm.enabled .Values.keda.litellm.enabled }}
+# 3. KEDA ScaledObject for LiteLLM Gateway (Request Rate & Concurrency Scaling)
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ .Release.Name }}-litellm-keda
+  labels:
+    app: litellm-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Release.Name }}-litellm
+  pollingInterval: {{ .Values.keda.litellm.pollingInterval | default 10 }}
+  cooldownPeriod: {{ .Values.keda.litellm.cooldownPeriod | default 60 }}
+  minReplicaCount: {{ .Values.keda.litellm.minReplicaCount | default 1 }}
+  maxReplicaCount: {{ .Values.keda.litellm.maxReplicaCount | default 8 }}
+  triggers:
+    {{- toYaml .Values.keda.litellm.triggers | nindent 4 }}
+{{- end }}
+{{- end }}
+
